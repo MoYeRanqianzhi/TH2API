@@ -55,14 +55,32 @@ print(account.api_key)
 3. Token Harbor still sends its own verification email. The pipeline polls the
    inbox, opens the `/verify-email?token=…` link with the same session, and
    confirms the redirect lands on `?verify=success`.
-4. `POST /api/keys` mints the key, which is then checked against
+4. `POST /api/me/privacy` grants the free-model data-sharing consent, because
+   `:free` routes answer `free_models_disabled` until it is accepted.
+5. `POST /api/keys` mints the key, which is then checked against
    `GET /v1/models` before being recorded.
 
-The JSONL record keeps the email, password, fingerprint, API key, raw session
-token, access/refresh tokens, and the cookies needed to resume the session.
+The JSONL record keeps the email, password, fingerprint, API key, free-model
+consent state, raw session token, access/refresh tokens, and the cookies needed
+to resume the session.
 
 Keys created before verification are accepted by the API but rejected by
 `/v1/models`, so the pipeline always verifies first.
+
+## Qualification test (on demand)
+
+Registration does not prove the routed model is real. This separate test asks a
+thinking model to produce an SVG animation of a pelican riding a bicycle, with
+`reasoning_effort: max`, and writes an HTML report for human review:
+
+```bash
+uv run th2api-qualify --model deepseek-v4.1-flash:free --effort max
+```
+
+The report lands in `var/tests/pelican-*.html` and embeds the model's page in a
+sandboxed iframe, the raw output, the reasoning trace, token usage, elapsed
+time, and the request id. A normal run thinks for tens of thousands of tokens,
+so this is deliberately not part of `th2api-register`.
 
 ## Known failures
 
@@ -93,4 +111,7 @@ src/th2api/registration/
   flow.py          end-to-end pipeline
   store.py         local account records
   cli.py           th2api-register entry point
+src/th2api/qualification/
+  pelican.py       on-demand pelican SVG test and HTML report
+  cli.py           th2api-qualify entry point
 ```

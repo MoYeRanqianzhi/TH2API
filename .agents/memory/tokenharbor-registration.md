@@ -17,7 +17,9 @@ address and the response sets `sb-auth-auth-token.0/.1` cookies.
 The site then sends its own verification email (`/verify-email?token=…`) which
 must be opened with that same session; the redirect carries `?verify=success`.
 Keys minted before verification are accepted by `POST /api/keys` but rejected
-by `GET /v1/models`, so always verify first, then mint and validate.
+by `GET /v1/models`, so always verify first, then mint and validate. Free
+models also start disabled: registration must grant the privacy consent before
+`:free` routes work ([[tokenharbor-free-tier]]).
 
 Session cookies rotate during verification and key creation, so read the auth
 session last and persist the raw token plus decoded access/refresh tokens.

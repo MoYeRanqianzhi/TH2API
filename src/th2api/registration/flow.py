@@ -32,6 +32,7 @@ class RegisteredAccount:
     api_key: str
     key_id: str
     label: str
+    free_models_enabled: bool
     auth_token: str
     access_token: str
     refresh_token: str
@@ -48,6 +49,7 @@ class RegisteredAccount:
             "api_key": self.api_key,
             "key_id": self.key_id,
             "label": self.label,
+            "free_models_enabled": self.free_models_enabled,
             "auth_token": self.auth_token,
             "access_token": self.access_token,
             "refresh_token": self.refresh_token,
@@ -71,7 +73,8 @@ def register_account(
 
     Order matters: Token Harbor accepts key creation before email
     verification, but such keys are rejected by ``/v1/models``.  The pipeline
-    therefore verifies first and only then mints and validates the key.
+    therefore verifies first, grants the free-model consent, and only then
+    mints and validates the key.
     """
     duck = DuckMailClient(proxy=proxy)
     harbor = TokenHarborClient(proxy=proxy)
@@ -130,6 +133,10 @@ def register_account(
         if not harbor.verify_email(url):
             raise EmailVerificationError("verification link was rejected twice")
 
+    # Free routes stay disabled until the account accepts the data-sharing
+    # consent; without this step :free model IDs answer free_models_disabled.
+    harbor.enable_free_models()
+
     key = harbor.create_api_key(label)
     if not harbor.validate_api_key(key.plaintext):
         raise RegistrationError(
@@ -149,6 +156,7 @@ def register_account(
         api_key=key.plaintext,
         key_id=key.id,
         label=key.label,
+        free_models_enabled=True,
         auth_token=session.token,
         access_token=session.access_token,
         refresh_token=session.refresh_token,

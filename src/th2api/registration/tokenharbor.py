@@ -41,6 +41,13 @@ DEFAULT_BASE_URL = "https://tokenharbor.ai"
 # ``/_next/static/immutable/chunks/*.js`` on the login page.
 SIGNUP_ACTION_ID = "60c5d7a61c5d71d0085a79db83f9b0423db7d50ff5"
 
+# Stored with the consent POST; the dashboard sends the modal text it rendered.
+FREE_MODEL_CONSENT = (
+    "Token Harbor may keep free-route requests and responses for diagnostics, "
+    "safety and model evaluation, and providers serving free models may use "
+    "them under their own terms."
+)
+
 # The router state the browser sends with a form action on /login.
 LOGIN_ROUTER_STATE = json.dumps(
     [
@@ -167,6 +174,49 @@ class TokenHarborClient:
         if not any(name.startswith("sb-auth-auth-token") for name in self.cookies):
             raise SignupError("sign-up returned no session cookies")
         return fingerprint
+
+    def enable_free_models(
+        self,
+        *,
+        screen: str = "consent_modal",
+        path: str = "/dashboard",
+    ) -> bool:
+        """Turn on the ``:free`` routes by granting the data-sharing consent.
+
+        New accounts have free models *off* until the user accepts that
+        free-route conversations may be retained for diagnostics and model
+        evaluation.  The dashboard modal performs a single privacy POST, so
+        registration does the same and returns ``True`` when the consent was
+        newly granted.
+        """
+        privacy = self._session.get(
+            f"{self.base_url}/api/me/privacy", timeout=self.timeout
+        )
+        if privacy.status_code != 200:
+            raise TokenHarborError(
+                f"privacy lookup failed: {privacy.status_code} {privacy.text[:200]}"
+            )
+        if privacy.json().get("free_models_enabled"):
+            return False
+
+        response = self._session.post(
+            f"{self.base_url}/api/me/privacy",
+            json={
+                "free_models_enabled": True,
+                "shown_text": FREE_MODEL_CONSENT,
+                "screen": screen,
+                "path": path,
+            },
+            timeout=self.timeout,
+        )
+        if response.status_code != 200 or not response.json().get(
+            "free_models_enabled"
+        ):
+            raise TokenHarborError(
+                f"free-model consent failed: "
+                f"{response.status_code} {response.text[:200]}"
+            )
+        return True
 
     def request_verification_email(self) -> None:
         """Ask the dashboard endpoint to send a fresh verification link.
