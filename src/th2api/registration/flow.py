@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-import re
+import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from .duckmail import DuckMailClient, Message
+from .duckmail import Message
+from .providers import DuckMailProvider, EmailProvider, Mailbox
+from .routing import extract_verification_url, message_targets_mailbox
 from .tokenharbor import (
     AccountCapError,
     CaptchaRequiredError,
     EmailVerificationError,
+    RegionBlockedError,
     SignupError,
     TokenHarborClient,
-)
-
-VERIFICATION_URL = re.compile(
-    r"https?://[^\s\"'<>]+/verify-email\?token=[A-Za-z0-9_\-=%.]+"
 )
 
 
@@ -33,6 +32,8 @@ class RegisteredAccount:
     key_id: str
     label: str
     free_models_enabled: bool
+    email_provider: str
+    forward_to: str | None
     auth_token: str
     access_token: str
     refresh_token: str
@@ -50,6 +51,8 @@ class RegisteredAccount:
             "key_id": self.key_id,
             "label": self.label,
             "free_models_enabled": self.free_models_enabled,
+            "email_provider": self.email_provider,
+            "forward_to": self.forward_to,
             "auth_token": self.auth_token,
             "access_token": self.access_token,
             "refresh_token": self.refresh_token,
@@ -68,21 +71,30 @@ def register_account(
     domain: str | None = None,
     proxy: str | None = None,
     verification_timeout: float = 180.0,
+    mail_provider: EmailProvider | None = None,
 ) -> RegisteredAccount:
     """Create one account and mint a working ``thk_live_…`` key.
+
+    ``mail_provider`` controls where mail comes from; the default is a fresh
+    DuckMail inbox. Pass ``DomainForwardProvider`` for a custom domain that
+    forwards into one shared DuckMail inbox.
 
     Order matters: Token Harbor accepts key creation before email
     verification, but such keys are rejected by ``/v1/models``.  The pipeline
     therefore verifies first, grants the free-model consent, and only then
     mints and validates the key.
     """
-    duck = DuckMailClient(proxy=proxy)
+    provider = mail_provider or DuckMailProvider(proxy=proxy, domain=domain)
     harbor = TokenHarborClient(proxy=proxy)
 
-    if email is None:
-        email, password = duck.create_inbox(domain=domain)
-    elif password is None:
-        raise RegistrationError("a password is required when email is supplied")
+    mailbox = _prepare_mailbox(provider, email, password)
+    email = mailbox.address
+    if password is None:
+        # A DuckMail inbox's password doubles as the account password, as it
+        # always has. A forwarded domain address has no such secret, so give
+        # the Token Harbor account its own password.
+        password = mailbox.secret if isinstance(provider, DuckMailProvider) else None
+        password = password or secrets.token_urlsafe(20)
 
     started = datetime.now(timezone.utc)
     try:
@@ -99,25 +111,39 @@ def register_account(
             "network; the IP has likely used up its sign-up allowance. Retry "
             "from another clean network."
         ) from exc
+    except RegionBlockedError as exc:
+        raise RegistrationError(
+            "Token Harbor blocks this egress country or the email service "
+            "(region_not_supported). Retry from a supported country."
+        ) from exc
     except SignupError as exc:
         raise RegistrationError(f"sign-up failed: {exc}") from exc
 
-    token = duck.token(email, password)
+    # The session's user id is the routing key for a shared forward inbox: the
+    # verification link embeds the same id, so a sibling registration cannot
+    # consume this account's mail even if the forwarder rewrote the recipient.
+    user_id = harbor.auth_session().user_id
+
     message = _wait_for_verification(
-        duck, token, started - timedelta(minutes=1), timeout=verification_timeout
+        provider,
+        mailbox,
+        user_id,
+        started - timedelta(minutes=1),
+        timeout=verification_timeout,
     )
     if message is None:
         harbor.request_verification_email()
         message = _wait_for_verification(
-            duck,
-            token,
+            provider,
+            mailbox,
+            user_id,
             datetime.now(timezone.utc) - timedelta(minutes=1),
             timeout=verification_timeout,
         )
     if message is None:
         raise RegistrationError("verification email did not arrive")
 
-    url = _extract_url(message)
+    url = extract_verification_url(message)
     if url is None:
         raise RegistrationError("verification email contained no link")
     if not harbor.verify_email(url):
@@ -125,11 +151,15 @@ def register_account(
         # recovery path in the dashboard banner.
         harbor.request_verification_email()
         newer = _wait_for_verification(
-            duck, token, message.created_at, timeout=verification_timeout
+            provider,
+            mailbox,
+            user_id,
+            message.created_at,
+            timeout=verification_timeout,
         )
-        if newer is None or _extract_url(newer) is None:
+        if newer is None or extract_verification_url(newer) is None:
             raise EmailVerificationError("replacement verification email missing")
-        url = _extract_url(newer)
+        url = extract_verification_url(newer)
         if not harbor.verify_email(url):
             raise EmailVerificationError("verification link was rejected twice")
 
@@ -157,6 +187,8 @@ def register_account(
         key_id=key.id,
         label=key.label,
         free_models_enabled=True,
+        email_provider=mailbox.provider,
+        forward_to=mailbox.forward_to,
         auth_token=session.token,
         access_token=session.access_token,
         refresh_token=session.refresh_token,
@@ -166,9 +198,27 @@ def register_account(
     )
 
 
+def _prepare_mailbox(
+    provider: EmailProvider,
+    email: str | None,
+    password: str | None,
+) -> Mailbox:
+    if email is None:
+        return provider.create_mailbox()
+
+    if not isinstance(provider, DuckMailProvider):
+        raise RegistrationError(
+            "reusing an address is only supported with the duckmail provider"
+        )
+    if password is None:
+        raise RegistrationError("a password is required when email is supplied")
+    return provider.mailbox_for(email, password)
+
+
 def _wait_for_verification(
-    duck: DuckMailClient,
-    token: str,
+    provider: EmailProvider,
+    mailbox: Mailbox,
+    user_id: str,
     after: datetime,
     *,
     timeout: float,
@@ -178,11 +228,9 @@ def _wait_for_verification(
             message.created_at > after
             and "verify" in message.subject.lower()
             and message.sender.lower().endswith("tokenharbor.ai")
+            and message_targets_mailbox(
+                mailbox, message, expected_user_id=user_id
+            )
         )
 
-    return duck.wait_for_message(token, matches, timeout=timeout, interval=5.0)
-
-
-def _extract_url(message: Message) -> str | None:
-    match = VERIFICATION_URL.search(f"{message.text}\n{message.html}")
-    return match.group(0) if match else None
+    return provider.wait_for_message(mailbox, matches, timeout=timeout, interval=5.0)

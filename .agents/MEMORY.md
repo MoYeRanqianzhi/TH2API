@@ -5,3 +5,4 @@
 - [DuckMail API](memory/duckmail-api.md) -- mail.tm-compatible temp inbox used by the registration pipeline
 - [Token Harbor free tier](memory/tokenharbor-free-tier.md) -- free models need consent, ~$1 allowance on a personal 7-day window
 - [Registration proxy](memory/registration-proxy.md) -- one proxy for the whole pipeline; SOCKS5 needs socks5h for remote DNS
+- [Email providers](memory/email-providers.md) -- provider interface, domain-forward PIN, queue-safe concurrent mail routing

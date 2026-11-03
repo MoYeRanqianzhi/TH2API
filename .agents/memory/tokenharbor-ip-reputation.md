@@ -12,6 +12,8 @@ Two sign-up failures are IP-reputation signals, not bad input:
 
 - `{"error":"We can't create another account from this network or device right now.","code":"account_cap"}`
 - `Please complete the human check to continue.` (Cloudflare Turnstile, no code)
+- `Your IP or email service is not supported for Token Harbor accounts.`
+  (region block; the exit country is not served)
 
 `account_cap` means the egress IP already created its allowance of accounts;
 it appeared on datacenter proxy IPs while the same email/password worked from a
@@ -25,8 +27,9 @@ rather than pre-emptively rotating.
 
 **Evidence:** 2026-11-03 probes: 6 proxies returned `account_cap`; the clean
 local IP created two accounts, then the following attempt demanded Turnstile
-(and kept demanding it minutes later). The proxy pool later stopped accepting
-CONNECT entirely.
+(and kept demanding it minutes later). A later China exit (27.115.65.24) was
+rejected with the region-block message while its precheck still said
+`needCaptcha:false`. The proxy pool later stopped accepting CONNECT entirely.
 
 **Why:** retrying the same request or changing the email hides the real cause
 and burns the remaining quota.

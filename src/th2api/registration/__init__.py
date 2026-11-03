@@ -2,6 +2,13 @@
 
 from .duckmail import DuckMailClient, DuckMailError, Message
 from .flow import RegisteredAccount, RegistrationError, register_account
+from .providers import (
+    DomainForwardProvider,
+    DuckMailProvider,
+    EmailProvider,
+    EmailProviderError,
+    Mailbox,
+)
 from .store import save_account
 from .tokenharbor import (
     AccountCapError,
@@ -9,6 +16,7 @@ from .tokenharbor import (
     ApiKeyError,
     CaptchaRequiredError,
     EmailVerificationError,
+    RegionBlockedError,
     SignupError,
     TokenHarborClient,
     TokenHarborError,
@@ -19,10 +27,16 @@ __all__ = [
     "ApiKey",
     "ApiKeyError",
     "CaptchaRequiredError",
+    "DomainForwardProvider",
     "DuckMailClient",
     "DuckMailError",
+    "DuckMailProvider",
+    "EmailProvider",
+    "EmailProviderError",
     "EmailVerificationError",
+    "Mailbox",
     "Message",
+    "RegionBlockedError",
     "RegisteredAccount",
     "RegistrationError",
     "SignupError",

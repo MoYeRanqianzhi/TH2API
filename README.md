@@ -31,8 +31,11 @@ password, random device fingerprint, API key, and Supabase session tokens) to
 | --- | --- |
 | `--count N` | register `N` accounts in one run |
 | `--label NAME` | label for the minted key |
+| `--email-provider KIND` | `duckmail` (default) or `domain-forward` |
+| `--domain DOMAIN` | DuckMail domain, or the custom forwarding domain |
+| `--forward-to ADDRESS` | DuckMail inbox receiving the custom domain's mail |
+| `--pin SECRET` | DuckMail password or access token for `--forward-to` |
 | `--proxy URL` | route both services through an HTTP proxy |
-| `--domain DOMAIN` | pick a DuckMail domain |
 | `--timeout SECONDS` | wait for each verification email |
 
 Programmatic use:
@@ -78,9 +81,45 @@ surface as `AccountCapError` / `CaptchaRequiredError` inside
 [docs/registration.md](docs/registration.md) for the retry example and the full
 library reference.
 
+### Email providers
+
+The pipeline talks to an `EmailProvider`, so the mail source is swappable. The
+default `duckmail` provider creates one disposable inbox per registration.
+
+`domain-forward` generates a fresh `<random>@yourdomain` address and reads mail
+from a single DuckMail inbox that your domain's catch-all forwards into:
+
+```bash
+uv run th2api-register --email-provider domain-forward   --domain example.com   --forward-to inbox@niceground.shop   --pin '<duckmail password or access token>'
+```
+
+```python
+from th2api.registration import DomainForwardProvider, register_account
+
+provider = DomainForwardProvider(
+    domain="example.com",
+    forward_to="inbox@niceground.shop",
+    pin="<duckmail password or access token>",
+)
+account = register_account(mail_provider=provider)
+```
+
+`pin` is the DuckMail credential for the forward inbox, not the new account's
+password — the pipeline generates a separate password for Token Harbor.
+
+A shared forward inbox is safe for concurrent registrations: messages are never
+deleted or consumed, each run filters by recipient and by the user id inside the
+verification link, and a burst is read across several inbox pages. Two
+simultaneous sign-ups therefore cannot take each other's email. To add Outlook,
+Gmail, or another source, subclass `EmailProvider` (implement `create_mailbox`,
+`list_messages`, `get_message`) and pass an instance as `mail_provider`; see
+[docs/registration.md](docs/registration.md) for the interface.
+
 ## How registration works
 
-1. `api.duckmail.sbs` (mail.tm-compatible) creates a temporary inbox.
+1. The configured `EmailProvider` supplies an address. DuckMail
+   (`api.duckmail.sbs`, mail.tm-compatible) is the default; a custom domain can
+   forward into one shared DuckMail inbox instead.
 2. `POST https://tokenharbor.ai/login?mode=signup` submits the login page's
    React Server Action with a browser-shaped multipart body and a freshly
    random device fingerprint for every run. Supabase creates the user already
@@ -94,8 +133,8 @@ library reference.
    `GET /v1/models` before being recorded.
 
 The JSONL record keeps the email, password, fingerprint, API key, free-model
-consent state, raw session token, access/refresh tokens, and the cookies needed
-to resume the session.
+consent state, email provider, forward target, raw session token,
+access/refresh tokens, and the cookies needed to resume the session.
 
 Keys created before verification are accepted by the API but rejected by
 `/v1/models`, so the pipeline always verifies first.
@@ -135,6 +174,14 @@ Please complete the human check to continue.
 The pipeline raises `AccountCapError` and `CaptchaRequiredError` respectively
 so callers can tell these apart from real validation errors.
 
+Region block — some exit countries are not supported:
+
+```text
+Your IP or email service is not supported for Token Harbor accounts.
+```
+
+Raised as `RegionBlockedError`; switch the egress country.
+
 ## Layout
 
 ```
@@ -142,8 +189,12 @@ src/th2api/registration/
   duckmail.py      temporary inbox client
   tokenharbor.py   sign-up server action, verification, API keys
   flow.py          end-to-end pipeline
+  providers.py     email provider interface and presets
+  routing.py       queue-safe verification mail routing
   store.py         local account records
   cli.py           th2api-register entry point
+tests/
+  test_routing.py  concurrent-mail routing checks
 src/th2api/qualification/
   pelican.py       on-demand pelican SVG test and HTML report
   cli.py           th2api-qualify entry point

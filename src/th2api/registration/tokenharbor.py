@@ -84,6 +84,14 @@ class CaptchaRequiredError(SignupError):
     """
 
 
+class RegionBlockedError(SignupError):
+    """Token Harbor refuses the egress country or the email service.
+
+    The action answers "Your IP or email service is not supported for Token
+    Harbor accounts" and points at the connection's exit country.
+    """
+
+
 class EmailVerificationError(TokenHarborError):
     """The verification link was missing, expired, or already consumed."""
 
@@ -115,6 +123,7 @@ class AuthSession:
     access_token: str
     refresh_token: str
     expires_at: int | None
+    user_id: str
 
 
 class TokenHarborClient:
@@ -170,6 +179,8 @@ class TokenHarborClient:
                 raise AccountCapError(message, code)
             if "human check" in message.lower():
                 raise CaptchaRequiredError(message, code)
+            if "not supported for token harbor accounts" in message.lower():
+                raise RegionBlockedError(message, code)
             raise SignupError(message, code)
         if not any(name.startswith("sb-auth-auth-token") for name in self.cookies):
             raise SignupError("sign-up returned no session cookies")
@@ -313,12 +324,14 @@ class TokenHarborClient:
             # still replay the cookies themselves.
             pass
 
+        access_token = payload.get("access_token", "")
         return AuthSession(
             cookies=cookies,
             token=token,
-            access_token=payload.get("access_token", ""),
+            access_token=access_token,
             refresh_token=payload.get("refresh_token", ""),
             expires_at=payload.get("expires_at"),
+            user_id=_jwt_user_id(access_token),
         )
 
     def _server_action(
@@ -398,3 +411,19 @@ def _action_error(text: str) -> dict | None:
         if isinstance(payload, dict) and "error" in payload:
             return payload
     return None
+
+
+def _jwt_user_id(access_token: str) -> str:
+    """Read the ``sub`` claim without verifying the signature.
+
+    The token came from Supabase over TLS and is used only to route mail to
+    the session that created it, so signature verification adds nothing here.
+    """
+    try:
+        part = access_token.split(".")[1]
+        payload = json.loads(
+            base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+        )
+    except (IndexError, ValueError, json.JSONDecodeError):
+        return ""
+    return str(payload.get("sub", ""))

@@ -45,6 +45,9 @@ class Message:
     created_at: datetime
     text: str
     html: str
+    # Recipients survive ordinary forwarding, and the domain-forward provider
+    # uses them to tell its generated addresses apart in one shared inbox.
+    to: tuple[str, ...] = ()
 
 
 class DuckMailClient:
@@ -122,12 +125,23 @@ class DuckMailClient:
             )
         return response.json()["token"]
 
-    def messages(self, token: str) -> list[Message]:
+    def access_token(self, address: str, pin: str) -> str:
+        """Accept either a DuckMail password or an already-issued access token.
+
+        The web UI calls its credential an access token; inboxes created over
+        the API have a password.  A JWT can be used directly as the bearer,
+        anything else is exchanged through ``POST /token``.
+        """
+        if pin.startswith("eyJ") and pin.count(".") == 2:
+            return pin
+        return self.token(address, pin)
+
+    def messages(self, token: str, page: int = 1) -> list[Message]:
         """Newest messages are not guaranteed to be first; callers sort."""
         response = self._session.get(
             f"{self.base_url}/messages",
             headers={"Authorization": f"Bearer {token}"},
-            params={"page": 1},
+            params={"page": page},
             timeout=self.timeout,
         )
         if response.status_code != 200:
@@ -185,6 +199,14 @@ class DuckMailClient:
         except ValueError:
             created_at = datetime.now(timezone.utc)
         sender = entry.get("from") or {}
+        recipients = entry.get("to") or []
+        if isinstance(recipients, list):
+            to = tuple(
+                item.get("address", "") if isinstance(item, dict) else str(item)
+                for item in recipients
+            )
+        else:
+            to = ()
         return Message(
             id=entry.get("id", ""),
             subject=entry.get("subject", ""),
@@ -192,4 +214,5 @@ class DuckMailClient:
             created_at=created_at,
             text=entry.get("text", "") if include_body else (entry.get("intro") or ""),
             html=html if include_body else "",
+            to=to,
         )
