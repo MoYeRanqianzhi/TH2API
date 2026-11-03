@@ -15,12 +15,18 @@ Two sign-up failures are IP-reputation signals, not bad input:
 
 `account_cap` means the egress IP already created its allowance of accounts;
 it appeared on datacenter proxy IPs while the same email/password worked from a
-clean local IP. Turnstile appeared on that local IP after two successful
-sign-ups. Both are raised as `AccountCapError` / `CaptchaRequiredError`.
+clean local IP. Both are raised as `AccountCapError` / `CaptchaRequiredError`.
 
-**Evidence:** 2026-11-03 probes: 6 proxies returned `account_cap`, clean IP
-created two accounts, then the third attempt demanded Turnstile; the proxy pool
-later stopped accepting CONNECT entirely.
+**Possible trigger:** Turnstile showed up on the next attempt after two
+successful sign-ups from the same IP. That is a hypothesis, not a confirmed
+rule -- the threshold may be time-, volume-, or bot-score-based. Do not treat
+"two accounts then captcha" as guaranteed either way; check the actual response
+rather than pre-emptively rotating.
+
+**Evidence:** 2026-11-03 probes: 6 proxies returned `account_cap`; the clean
+local IP created two accounts, then the following attempt demanded Turnstile
+(and kept demanding it minutes later). The proxy pool later stopped accepting
+CONNECT entirely.
 
 **Why:** retrying the same request or changing the email hides the real cause
 and burns the remaining quota.
