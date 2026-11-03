@@ -63,11 +63,18 @@ account = register_account(
 uv run th2api-register --proxy http://user:pass@proxy.example.com:3129
 ```
 
-The URL must include its scheme (the pools in this repo use `http://`);
-percent-encode reserved characters in the credentials. There is no automatic pool rotation —
-`account_cap` and Turnstile failures surface as
-`AccountCapError` / `CaptchaRequiredError` inside `RegistrationError.__cause__`,
-so callers can retry with another proxy. See
+The URL must include its scheme (`http://`, `https://`, or `socks5h://`);
+percent-encode reserved characters in the credentials. For SOCKS5 use
+`socks5h://` (remote DNS) — plain `socks5://` resolves hostnames locally, and
+behind a fake-IP/tunnel DNS that hands the proxy an unroutable address:
+
+```bash
+uv run th2api-register --proxy "socks5h://user:pass@proxy.example.com:3000"
+```
+
+There is no automatic pool rotation — `account_cap` and Turnstile failures
+surface as `AccountCapError` / `CaptchaRequiredError` inside
+`RegistrationError.__cause__`, so callers can retry with another proxy. See
 [docs/registration.md](docs/registration.md) for the retry example and the full
 library reference.
 

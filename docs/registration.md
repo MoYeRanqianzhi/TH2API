@@ -53,8 +53,14 @@ uv run th2api-register --proxy http://user:pass@proxy.example.com:3129
 
 Notes:
 
-- The proxy URL must include its scheme (the pools in this repo use `http://`).
+- The proxy URL must include its scheme: `http://`, `https://`, or
+  `socks5h://` for SOCKS5.
+- Prefer `socks5h://` over `socks5://`: `h` means the proxy resolves the
+  hostname. Plain `socks5://` resolves locally, so under a fake-IP tunnel it
+  sends an unroutable address and the proxy closes the connection.
 - Encode reserved characters in credentials, e.g. `p@ss` becomes `p%40ss`.
+- Both HTTP(S) and SOCKS5 proxies are passed straight to libcurl; an
+  end-to-end registration through `socks5h://` has been verified.
 - There is no automatic pool rotation. Token Harbor rejections surface as
   `RegistrationError`; a proxy that cannot connect raises curl_cffi's
   `ProxyError` / timeout directly. For `account_cap` / Turnstile failures the
