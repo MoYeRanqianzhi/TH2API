@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+.tmp/
+.playwright-mcp/
+signup.html
+
+# Local credentials and runtime data; never commit registered accounts.
+var/
+.env
+.env.*
+!.env.example
+
+# User-provided proxy pool (contains credentials).
+代理池/
