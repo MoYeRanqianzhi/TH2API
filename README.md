@@ -45,6 +45,32 @@ save_account(account)
 print(account.api_key)
 ```
 
+### Registration through a proxy
+
+`proxy` is a first-class argument, not a CLI-only afterthought. The same proxy
+covers every request in the pipeline: DuckMail inbox creation and polling, the
+Token Harbor sign-up action, the verification link, the free-model consent, and
+key creation.
+
+```python
+account = register_account(
+    label="my-agent",
+    proxy="http://user:pass@proxy.example.com:3129",
+)
+```
+
+```bash
+uv run th2api-register --proxy http://user:pass@proxy.example.com:3129
+```
+
+The URL must include its scheme (the pools in this repo use `http://`);
+percent-encode reserved characters in the credentials. There is no automatic pool rotation —
+`account_cap` and Turnstile failures surface as
+`AccountCapError` / `CaptchaRequiredError` inside `RegistrationError.__cause__`,
+so callers can retry with another proxy. See
+[docs/registration.md](docs/registration.md) for the retry example and the full
+library reference.
+
 ## How registration works
 
 1. `api.duckmail.sbs` (mail.tm-compatible) creates a temporary inbox.

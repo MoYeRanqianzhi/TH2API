@@ -24,7 +24,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--domain", help="DuckMail domain to use")
     parser.add_argument(
         "--proxy",
-        help="HTTP proxy for both services, e.g. http://user:pass@host:3129",
+        help=(
+            "proxy for every request (DuckMail + Token Harbor), "
+            "e.g. http://user:pass@host:3129"
+        ),
     )
     parser.add_argument(
         "--timeout",
