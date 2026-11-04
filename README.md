@@ -199,3 +199,8 @@ src/th2api/qualification/
   pelican.py       on-demand pelican SVG test and HTML report
   cli.py           th2api-qualify entry point
 ```
+
+---
+
+学AI，上L站
+感谢LinuxDo社区
